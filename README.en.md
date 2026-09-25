@@ -70,15 +70,19 @@ approval/request (host waterfall)
 | `sessions` list hit | session-level | agent id matches a glob → **every** turn of that session is gated (unioned with `origins`) |
 | `all` | global | every approval request is gated (the opt-in gate-everything escape hatch) |
 | `subagent` | session-level | `session.header.origin === 'subagent'` (a subagent session is dedicated to delegation) |
-| `scheduled` | turn-level | the **last** user message's `source.kind === 'schedule'` (the host's dsh-schedule) |
-| `cron` | turn-level | the last user message's `source.kind === 'cron'` (dsh-cron ≥ the patched release) |
+| `scheduled` | turn-level | the **last provenance-bearing** user message's `source.kind === 'schedule'` (the host's dsh-schedule) |
+| `cron` | turn-level | the last provenance user message's `source.kind === 'cron'` (dsh-cron ≥ the patched release) |
 
-`scheduled` / `cron` look at the **last** user message, not "any" or "the first": those sessions
-are shared with humans, so **once a human has spoken the turn is not gated** — "is anyone
-watching" is exactly the semantics of unattended detection. A human steering a clarification
-after a cron fire makes that last message a human one, and the interactive default is kept. A
-malformed glob in the `sessions` list is treated as a miss (compile failures don't throw), so a
-typo in the list can never break approvals.
+`scheduled` / `cron` look at the last **provenance** user message (`user` / `schedule` /
+`cron`), **skipping synthetic injections**: the host writes `role='user'` context messages
+(`runtime-context` snapshots, `skill-catalog` reminders) into the stream after a turn starts,
+always after the trigger — without the skip every cron turn misclassifies as interactive (a bug
+caught on a live host and pinned by a regression test). Not "any" and not "the first" either:
+those sessions are shared with humans, so **once a human has spoken the turn is not gated** —
+"is anyone watching" is exactly the semantics of unattended detection. A human steering a
+clarification after a cron fire makes that last provenance message a human one, and the
+interactive default is kept. A malformed glob in the `sessions` list is treated as a miss
+(compile failures don't throw), so a typo in the list can never break approvals.
 
 ### Relationship to the host's own mechanisms
 
@@ -168,8 +172,8 @@ If you want the denial guarantee without this plugin, set those sessions to
 ## Tests
 
 ```bash
-npm test    # 16 pure-logic unit tests (node --test):
-            #   glob compilation / fact reading (last user message) / detection granularity
+npm test    # 17 pure-logic unit tests (node --test):
+            #   glob compilation / fact reading (last provenance user message, synthetic-injection skip) / detection granularity
             #   (subagent, scheduled, cron, all, sessions list and its union)
             #   + race semantics (window 0 denies without delegating, an instant unavailable
             #   passes through, an in-window answer wins, a stuck answerer loses to the window)

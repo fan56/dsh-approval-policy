@@ -1,5 +1,21 @@
 # @aiwayds/dsh-approval-policy
 
+## 0.1.1
+
+真机测试（2026-09-25，tui profile 实测）抓到的判定 bug 修复：
+
+### Fixed
+
+- **turn 级判定被合成注入污染**：宿主在 turn 启动后会往 `user/message` 流里注入
+  `runtime-context` 快照、`skill-catalog` 提醒等 `role='user'` 的合成消息，它们永远压在真实
+  触发消息（`cron` fire / `schedule` 投递 / 人手敲）后面——原实现取「最后一条 user 消息」导致
+  **每条 cron/scheduled turn 都被误判成交互、透传不过窗**（真机 cron 腿 outcome 出
+  `unavailable` 而非 `rejected` 才暴露）。`readFacts` 改为**只认溯源消息**（`user` / `schedule`
+  / `cron`，缺省 kind 视作 `user`），向后扫描跳过合成注入与其他非溯源 kind（`webhook`、
+  `agent-message` 等）。Q7 的「人插话就不门控」语义不变（人 steer 仍是最末溯源消息）。
+- 回归单测 +5（合成注入不遮蔽触发、人 steer 胜出、缺省 kind 计为 user、非溯源 kind 跳过），
+  共 17 例；README 双语 / 配置 skill / ADR 0001 的判定粒度描述同步更正。
+
 ## 0.1.0
 
 首个版本：无人值守审批门控（unattended approval gate）。

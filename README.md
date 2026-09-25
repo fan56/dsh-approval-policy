@@ -64,13 +64,16 @@ approval/request（宿主 waterfall）
 | `sessions` 名单命中 | 会话级 | agent id 命中 glob → 该会话**所有** turn 都门控（与 `origins` 取并集） |
 | `all` | 全局 | 所有审批请求都门控（opt-in 的全门控逃生舱） |
 | `subagent` | 会话级 | `session.header.origin === 'subagent'`（子代理会话是专用于委派的） |
-| `scheduled` | turn 级 | 会话**最后一条 user 消息**的 `source.kind === 'schedule'`（宿主 dsh-schedule） |
-| `cron` | turn 级 | 最后一条 user 消息 `source.kind === 'cron'`（dsh-cron ≥ 本次补丁版） |
+| `scheduled` | turn 级 | 会话**最后一条溯源 user 消息**的 `source.kind === 'schedule'`（宿主 dsh-schedule） |
+| `cron` | turn 级 | 最后一条溯源 user 消息 `source.kind === 'cron'`（dsh-cron ≥ 本次补丁版） |
 
-`scheduled` / `cron` 取的是**最后一条** user 消息而不是「任一条」或「首条」：这些会话和人是
-共用的，**人插过话就不门控**——「有没有人在看」正是无人值守判定的语义。cron 任务跑完后人
-steer 了一句澄清，最后一条就是人的 → 交互默认保留。`sessions` 名单里的非法 glob 按不命中
-处理（编译失败不抛），保证名单写错也不会打断审批。
+`scheduled` / `cron` 取的是**最后一条溯源** user 消息（`user` / `schedule` / `cron`），
+**跳过合成注入**：宿主在 turn 启动后会往 user 消息流里注 `runtime-context` 快照、
+`skill-catalog` 提醒这类 `role='user'` 的合成消息，它们永远压在触发消息后面——不跳过的话
+每条 cron turn 都会被误判成交互（真机测试抓到的坑，回归单测钉死）。也不取「任一条」或
+「首条」：这些会话和人是共用的，**人插过话就不门控**——「有没有人在看」正是无人值守判定的
+语义。cron 任务跑完后人 steer 了一句澄清，最后一条溯源就是人的 → 交互默认保留。
+`sessions` 名单里的非法 glob 按不命中处理（编译失败不抛），保证名单写错也不会打断审批。
 
 ### 与宿主既有机制的关系
 
@@ -149,8 +152,8 @@ dsh plugin remove @aiwayds/dsh-approval-policy
 ## 测试
 
 ```bash
-npm test    # 16 个纯逻辑单测（node --test）：
-            #   glob 编译 / 事实读取（最后一条 user 消息）/ 判定粒度（subagent、
+npm test    # 17 个纯逻辑单测（node --test）：
+            #   glob 编译 / 事实读取（最后一条溯源 user 消息、合成注入跳过）/ 判定粒度（subagent、
             #   scheduled、cron、all、sessions 名单与并集）
             #   + 竞速语义（窗口 0 立即拒且不委托、瞬间 unavailable 原样透传、
             #   窗口内答案胜出、挂死 answerer 输给窗口）+ apply() 以 prepend 注册

@@ -23,10 +23,13 @@
  *   - all: gate everything (opt-in escape hatch);
  *   - subagent: session.header.origin === 'subagent' (session-level — a
  *     subagent session is dedicated to delegation);
- *   - scheduled / cron: turn-level — the LAST user message's source.kind is
- *     'schedule' (host dsh-schedule) or 'cron' (dsh-cron). Turn-level
- *     because those sessions are shared with humans: only machine-driven
- *     turns gate, and a human steering afterwards (last user message =
+ *   - scheduled / cron: turn-level — the last PROVENANCE-bearing user
+ *     message's source.kind is 'schedule' (host dsh-schedule) or 'cron'
+ *     (dsh-cron). Synthetic context injections (runtime-context,
+ *     skill-catalog, …) also ride role='user' and are skipped — they land
+ *     after the trigger and would otherwise shadow it. Turn-level because
+ *     those sessions are shared with humans: only machine-driven turns
+ *     gate, and a human steering afterwards (last provenance message =
  *     human) keeps the interactive default.
  *
  * The listener registers with prepend: true — the gate sits ahead of the
@@ -117,6 +120,18 @@ interface AgentLike {
 }
 
 /**
+ * Kinds that carry a turn's human/machine provenance. The host also injects
+ * SYNTHETIC context messages into the role='user' stream after a turn starts
+ * (runtime-context snapshots, skill-catalog reminders, …); they always sit
+ * after the real trigger and would shadow it, so the backward scan skips any
+ * user-role message whose kind is not one of these (a missing kind is legacy
+ * human input and counts as 'user'). Live-tested: without this skip, every
+ * cron/scheduled turn misclassified as interactive and slipped through
+ * unwindowed.
+ */
+const PROVENANCE_KINDS: ReadonlySet<string> = new Set(['user', 'schedule', 'cron'])
+
+/**
  * Read the origin facts off the request's agent. Both reads are best-effort:
  * a projected agent without a live session yields `{}` (only `sessions`/`all`
  * can then gate), and each fact independently degrades to undefined.
@@ -129,10 +144,13 @@ export function readFacts(agent: AgentLike | undefined): OriginFacts {
   if (messages) {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const message = messages[i]
-      if (message?.role === 'user') {
-        facts.lastUserMessageKind = message.source?.kind
+      if (message?.role !== 'user') continue
+      const kind = message.source?.kind
+      if (kind === undefined || PROVENANCE_KINDS.has(kind)) {
+        facts.lastUserMessageKind = kind ?? 'user'
         break
       }
+      // synthetic context injection — keep scanning for the real trigger
     }
   }
   return facts

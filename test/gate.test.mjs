@@ -82,6 +82,38 @@ test('readFacts: machine-kind last message, no session, partial session', () => 
   assert.equal(facts.lastUserMessageKind, undefined)
 })
 
+// Regression (caught on a real host, 2026-09-25): the host injects
+// synthetic role='user' messages (runtime-context, skill-catalog) AFTER the
+// turn trigger — a plain "last user message" scan always saw the synthetic
+// one and misclassified every cron turn as interactive.
+test('readFacts: synthetic context injections do not shadow the trigger', () => {
+  const cronTurn = fakeSession({
+    messages: [userMsg('cron'), userMsg('runtime-context'), userMsg('skill-catalog')],
+  })
+  assert.equal(readFacts({ id: 's1', session: cronTurn }).lastUserMessageKind, 'cron')
+
+  const interactiveTurn = fakeSession({
+    messages: [userMsg('cron'), userMsg('user'), userMsg('runtime-context')],
+  })
+  assert.equal(readFacts({ id: 's1', session: interactiveTurn }).lastUserMessageKind, 'user')
+
+  // a human steer after a cron fire wins (the "is anyone watching" rule)
+  const steered = fakeSession({
+    messages: [userMsg('cron'), userMsg('runtime-context'), userMsg('user')],
+  })
+  assert.equal(readFacts({ id: 's1', session: steered }).lastUserMessageKind, 'user')
+
+  // missing kind = legacy human input, counts as 'user' (never skipped)
+  const legacy = fakeSession({ messages: [{ role: 'user', source: {} }] })
+  assert.equal(readFacts({ id: 's1', session: legacy }).lastUserMessageKind, 'user')
+
+  // non-provenance kinds (webhook, agent-message) are skipped, not stopped on
+  const mixed = fakeSession({
+    messages: [userMsg('user'), userMsg('webhook'), userMsg('runtime-context')],
+  })
+  assert.equal(readFacts({ id: 's1', session: mixed }).lastUserMessageKind, 'user')
+})
+
 // --------------------------------------------------------------- shouldGate --
 
 test('default origins gate subagent sessions and scheduled turns, nothing else', () => {
