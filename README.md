@@ -80,7 +80,7 @@ steer 了一句澄清，最后一条就是人的 → 交互默认保留。`sessi
   `never` 会直接 auto-reject，与本插件**零冲突**——那是宿主既有机制，本插件是
   「**先试 N 秒再拒**」的时间窗形态。
 - **交互会话（未命中任何来源）立即 `next()` 透传**：交互默认一字不变。
-- **零落盘状态**：没有数据文件，也不占用 settings 命名空间之外的地方。
+- **零落盘状态**：没有数据文件，配置之外不额外占位（entry id 本身就是 settings 命名空间）。
 
 ## 配置
 
@@ -92,7 +92,7 @@ entry id 同时就是 settings 命名空间）。四个键**全部 volatile，�
 | `origins` | `(subagent\|scheduled\|cron\|all)[]` | `[subagent, scheduled]` | 判定为无人值守的来源；`all` 是 opt-in 的全门控 |
 | `sessions` | `string[]`（glob） | `[]` | 按 agent id glob 点名会话，命中即门控该会话**所有** turn（与 `origins` 取并集） |
 | `windowSeconds` | `number` 0..86400 | `60` | 应答窗口（秒）；`0` = 立即拒绝且**不**问下游 |
-| `defaultOutcome` | `rejected \| unavailable` | `rejected` | 窗口耗尽时落定的值；**配置层没有放行档**（fail-closed 红线，schema 枚举里就不含） |
+| `defaultOutcome` | `rejected \| unavailable` | `rejected` | 超时落定值；**配置层没有 allowed-once**（fail-closed 红线，schema 枚举就不含） |
 
 ```yaml
 # ~/.dsh/cordis.patch.yml（或某个 profile 的 cordis.patch.yml）
@@ -105,8 +105,8 @@ entry id 同时就是 settings 命名空间）。四个键**全部 volatile，�
         defaultOutcome: rejected
 ```
 
-- `defaultOutcome` 只有 `rejected` 和 `unavailable` 两个值，**没有「本次放行」这一档**——
-  无人值守的默认裁决必须 fail-closed，超时就是拒。要「窗口内放行」请让窗口内真的有人答。
+- `defaultOutcome` 只有 `rejected` 和 `unavailable` 两个值，**没有 `allowed-once`（本次放行）这一档**
+  ——无人值守的默认裁决必须 fail-closed，超时就是拒。要「窗口内放行」请让窗口内真的有人答。
 - 改完 `cordis.patch.yml` 后重启 dsh 生效；挂载块里的四键也可以在设置页直接热改。
 - 调配置的完整向导见随包技能 `dsh-approval-policy-config`（`skills/dsh-approval-policy-config/SKILL.md`）。
 
@@ -140,7 +140,7 @@ dsh plugin remove @aiwayds/dsh-approval-policy
 ```
 
 宿主自动清掉 profile `bundles` 里对应的条目和插件的 patch 层。本插件**零落盘状态**——
-没有数据文件，也不占用 settings 命名空间——卸载后不留任何残留。
+没有数据文件，配置之外不额外占位——卸载后不留任何残留。
 
 卸载后审批行为**回到宿主原生**（无窗口）：会话级 `approval/policy` 的 `ask` / `never` 照旧
 生效，交互 answerer 照旧应答；而「无人值守且没人答」那一档重新变回**可能永不落地**。
