@@ -1,0 +1,63 @@
+{
+  "name": "@aiwayds/dsh-approval-policy",
+  "version": "0.1.0",
+  "description": "dsh plugin: unattended approval gate — subagent/scheduled/cron approval requests get a bounded answer window, then settle with a fail-closed default instead of hanging forever (per origin or per session)",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "approval",
+    "unattended",
+    "gate"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "icon": "./icon.svg",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.7-rc.1"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "skills",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "scripts": {
+    "link-closure": "node scripts/link-dsh-closure.mjs",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "precheck": "node scripts/link-dsh-closure.mjs",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs",
+    "smoke": "node scripts/smoke-boot.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "author": "fan56",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fan56/dsh-approval-policy.git"
+  },
+  "homepage": "https://github.com/fan56/dsh-approval-policy",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

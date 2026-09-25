@@ -1,0 +1,244 @@
+# Release: publish to npm + create the GitHub Release when a v* tag is pushed.
+#
+# Hardened per the dsh-model-sync / dsh-tui-pi release incidents:
+#   - gates: build + typecheck + tests before any publish
+#   - the publish step is idempotent: it skips when the version is already on
+#     npm and treats npm's known lost-response failure (PUT lands, follow-up
+#     errors 403/404) as success
+#   - after publishing, `npm view` must SEE the version — npm has committed
+#     writes while reporting failure, so the exit code alone is never trusted
+#   - the GitHub Release job never repeats the npm publish and skips if the
+#     release already exists
+#
+# If the GitHub Release step fails after a successful publish, re-run the
+# `release` job alone — the publish is never repeated.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Gate & Publish
+    # Only the upstream repo publishes; forks skip this job (and the release
+    # job below is skipped with it via needs).
+    if: github.repository == 'fan56/dsh-approval-policy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # npm provenance (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install dsh CLI (rolling rc/stable line — newest of latest/next, never alpha; wave-pinned closure, falls back to the other tag)
+        run: |
+          # Policy (2026-09-03): the alpha line is retired for CI. Resolve the
+          # newest of the `latest` (stable) and `next` (rc) dist-tags at
+          # runtime, never hand-pinned — when a stable 0.1.2+ lands on
+          # `latest` it wins over the rc by plain semver compare. Mirrors
+          # ci.yml so the release gates against the same host closure.
+          STABLE="$(npm view @deepseek-ai/dsh@latest version)"
+          RC="$(npm view @deepseek-ai/dsh@next version 2>/dev/null || true)"
+          DSH_VERSION="$STABLE"
+          if [ -n "$RC" ] && [ "$(printf '%s\n' "$STABLE" "$RC" | sort -V | tail -1)" = "$RC" ]; then
+            DSH_VERSION="$RC"
+          fi
+          # The install goes into a scratch prefix as the publish wave's OWN
+          # closure: every @deepseek-ai/* range the resolved version declares
+          # is pinned to its base version via npm overrides. A plain
+          # `npm install -g dsh@$VER` is not resilient enough:
+          # 1. a caret range like ^0.1.5-rc.2 FLOATS to a newer prerelease in
+          #    the same tower, so one incomplete upstream wave (next=0.1.5-rc.3
+          #    shipped without dsh-client-ui-sidebar-documentpreview@rc.3)
+          #    poisons fresh installs of the OLDER, complete version too;
+          # 2. a wave with missing base versions fails HERE — instead of
+          #    redding CI on upstream's breakage — and falls back to the other
+          #    dist-tag; both ends uninstallable stays red (a real signal).
+          ALT=""
+          if [ "$DSH_VERSION" != "$STABLE" ]; then
+            ALT="$STABLE"
+          elif [ -n "$RC" ] && [ "$RC" != "$DSH_VERSION" ]; then
+            ALT="$RC"
+          fi
+          DSH_DIR="${RUNNER_TEMP:-/tmp}/dsh-cli-install"
+          install_dsh() {
+            local ver="$1" dir="$2"
+            node -e '
+              const { execFileSync } = require("node:child_process")
+              const { writeFileSync, mkdirSync } = require("node:fs")
+              const [ver, dir] = process.argv.slice(1)
+              const deps = JSON.parse(execFileSync("npm", ["view", `@deepseek-ai/dsh@${ver}`, "dependencies", "--json"], { encoding: "utf8" }))
+              const overrides = {}
+              for (const [name, range] of Object.entries(deps ?? {})) {
+                if (name.startsWith("@deepseek-ai/") && /^[~^]/.test(range)) overrides[name] = range.replace(/^[~^]/, "")
+              }
+              mkdirSync(dir, { recursive: true })
+              writeFileSync(`${dir}/package.json`, JSON.stringify({
+                name: "dsh-ci-install",
+                private: true,
+                dependencies: { "@deepseek-ai/dsh": ver },
+                overrides,
+              }, null, 2))
+            ' "$ver" "$dir"
+            (cd "$dir" && npm install --no-audit --no-fund >/dev/null)
+          }
+          echo "dsh closure: ${DSH_VERSION}"
+          if ! install_dsh "$DSH_VERSION" "$DSH_DIR"; then
+            if [ -z "$ALT" ]; then
+              echo "::error:: dsh@${DSH_VERSION} won't install and there is no other dist-tag to fall back to"
+              exit 1
+            fi
+            echo "::warning:: dsh@${DSH_VERSION} won't install (incomplete upstream publish wave?) — falling back to ${ALT}"
+            DSH_DIR="${RUNNER_TEMP:-/tmp}/dsh-cli-install-fallback"
+            install_dsh "$ALT" "$DSH_DIR" || { echo "::error:: neither ${DSH_VERSION} nor ${ALT} installs"; exit 1; }
+          fi
+          # Later steps (link-dsh-closure, boot smoke) use the scratch CLI.
+          echo "${DSH_DIR}/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "DSH_CLOSURE_DIR=${DSH_DIR}/node_modules/@deepseek-ai" >> "$GITHUB_ENV"
+
+      - name: Link dsh closure types
+        run: node scripts/link-dsh-closure.mjs
+
+      - name: Build & Check & Test
+        run: npm run build --if-present && npm run check --if-present && npm test
+
+      - name: Stamp package.json to the tag version
+        # The tag is the single source of truth for what gets published (the
+        # dsh-tui-pi@1.1.0 flow). Small patches skip the version-bump commit —
+        # push the fix, tag it, and the workflow rewrites package.json here
+        # (--allow-same-version makes a matching version a no-op). main's
+        # package.json may lag behind npm; the next deliberate bump
+        # (`npm version minor|major`) starts from whatever main carries, and
+        # the stamp keeps publishes tag-accurate.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          npm version "${TAG_VERSION}" --no-git-tag-version --allow-same-version
+          echo "publishing @aiwayds/dsh-approval-policy@${TAG_VERSION} (tag ${GITHUB_REF_NAME})"
+
+      - name: Publish to npm
+        # Idempotent: if the version is already on the registry, warn and
+        # skip instead of failing. Two shapes of "already published":
+        # 1. Visible to `npm view` up front (re-run, or a concurrent publish
+        #    that predates this step) — pre-check no-ops so the downstream
+        #    release job can still complete.
+        # 2. Landing WHILE this very `npm publish --provenance` runs: its
+        #    known follow-up failure mode reports 403/404 after the first PUT
+        #    actually succeeded. Match the registry error text instead of
+        #    trusting the exit code; npm versions are immutable, so
+        #    degrade-to-warning is the only correct outcome.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          # Prerelease tags publish on a side dist-tag — a test version never
+          # moves `latest`. Default-deny: any hyphen-suffixed tag is a
+          # prerelease. v2.10.0 → latest · v2.10.0-rc.1 → next ·
+          # v2.10.0-alpha.1 → alpha. Release policy: main carries no tag by
+          # default; a deliberate v* tag is the only path to npm.
+          case "$TAG_VERSION" in
+            *-alpha.*) NPM_TAG="alpha" ;;
+            *-*) NPM_TAG="next" ;;
+            *) NPM_TAG="latest" ;;
+          esac
+          echo "npm dist-tag: ${NPM_TAG}"
+          if npm view "@aiwayds/dsh-approval-policy@${TAG_VERSION}" version >/dev/null 2>&1; then
+            echo "::warning::@aiwayds/dsh-approval-policy@${TAG_VERSION} is already on npm — skipping publish"
+            exit 0
+          fi
+          set +e
+          PUB_OUT="$(npm publish --access public --provenance --tag "$NPM_TAG" 2>&1)"
+          PUB_RC=$?
+          set -e
+          printf '%s\n' "$PUB_OUT"
+          if [ "${PUB_RC}" -ne 0 ] && printf '%s' "$PUB_OUT" | grep -qiE "cannot publish over the previously published versions|E404|E403"; then
+            echo "::warning::publish errored but may have landed (npm's known lost-response mode) — the verify step decides"
+            exit 0
+          fi
+          exit "${PUB_RC}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify the publish actually landed
+        # The registry sometimes commits the write and loses the response —
+        # a green publish exit code is NOT proof. `npm view` seeing the
+        # version is the only acceptance signal.
+        #
+        # The window must outlast npm's packument propagation, which the
+        # dsh-dcp v0.11.0 release measured between ~50s and >2 min; the 6x5s = 30s window
+        # failed on a publish that had in fact landed). Budget ~2 min of
+        # retries before declaring the publish lost.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 30); do
+            if npm view "@aiwayds/dsh-approval-policy@${TAG_VERSION}" version >/dev/null 2>&1; then
+              echo "verified: @aiwayds/dsh-approval-policy@${TAG_VERSION} is visible on the registry (attempt ${attempt})"
+              exit 0
+            fi
+            echo "attempt ${attempt}/30: not visible yet; waiting 10s"
+            sleep 10
+          done
+          echo "::error::publish reported success but npm view never saw @aiwayds/dsh-approval-policy@${TAG_VERSION} after ~5 min — inspect the registry manually before trusting this release"
+          exit 1
+
+  release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full fetch so the annotated tag object is available for the
+          # tag-message extraction step below.
+          fetch-depth: 0
+
+      - name: Read tag message
+        id: tag_message
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo 'BODY<<EOF_TAG_MESSAGE'
+            # Annotated tag → its message; lightweight tag → falls back to the
+            # commit message.
+            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG"
+            echo 'EOF_TAG_MESSAGE'
+          } >> "$GITHUB_OUTPUT"
+
+      # Skip if the release was already created (e.g. manually after a failed
+      # run) — re-creating would overwrite that body with the tag message.
+      - name: Check if GitHub Release already exists
+        id: check_release
+        env:
+          TAG: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::GitHub Release $TAG already exists — skipping (preserving existing body)"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          BODY: ${{ steps.tag_message.outputs.BODY }}
+        # A hyphen-suffixed tag (rc/alpha/…) creates a prerelease GitHub
+        # Release — the Releases page keeps stable versions front and center.
+        run: gh release create "$TAG" --title "$TAG" --notes "$BODY" ${{ contains(github.ref_name, '-') && '--prerelease' || '' }}

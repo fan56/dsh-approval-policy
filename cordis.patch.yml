@@ -1,0 +1,15 @@
+# dsh-approval-policy bundle patch: mounts the unattended approval gate under
+# the stable id `dsh-approval-policy` (the entry id doubles as the settings
+# namespace — origins / sessions / windowSeconds / defaultOutcome).
+#
+# The gate registers on the 'approval/request' cordis waterfall with
+# prepend: true, so it sits ahead of interactive answerers (the web remote
+# answerer, dsh-feishu's card) no matter which plugin loads first. Unattended
+# requests are windowed BEFORE a human surface claims them; inside the window
+# the request still reaches those surfaces via next(). Interactive turns
+# delegate immediately (return next()) — the interactive default is unchanged.
+
+- insert:
+    - id: dsh-approval-policy
+      name: '@aiwayds/dsh-approval-policy'
+      config: {}

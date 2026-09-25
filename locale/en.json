@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-approval-policy",
+    "description": "Unattended approval gate: subagent/scheduled/cron approval requests wait a bounded window, then settle with a fail-closed default (audited in the session) instead of hanging forever. Interactive sessions are unchanged by default."
+  }
+}

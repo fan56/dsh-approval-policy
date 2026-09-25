@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-approval-policy",
+    "description": "无人值守审批门控：subagent/定时/cron 来源的审批请求限时等待，超时按 fail-closed 默认值落定并记入会话审计，不再无限挂起；交互会话默认不变。"
+  }
+}
