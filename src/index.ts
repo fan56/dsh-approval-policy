@@ -175,13 +175,22 @@ export async function raceGate(
   defaultOutcome: GatedOutcome,
 ): Promise<ApprovalOutcome> {
   if (windowMs <= 0) return defaultOutcome
-  return Promise.race([
-    decision(),
-    new Promise<ApprovalOutcome>((resolve) => {
-      const timer = setTimeout(() => resolve(defaultOutcome), windowMs)
-      timer.unref?.()
-    }),
-  ])
+  // The window timer stays REF'd on purpose: an open window means the host
+  // turn is still owed an outcome, so the process must not drain the event
+  // loop before it settles. It is cleared as soon as the race settles
+  // (answer, rejection, or expiry) so a fast answer never leaves a stray
+  // timer holding the loop for the rest of the window.
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      decision(),
+      new Promise<ApprovalOutcome>((resolve) => {
+        timer = setTimeout(() => resolve(defaultOutcome), windowMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 export function apply(ctx: Context, config: GateRuntimeConfig): void {
