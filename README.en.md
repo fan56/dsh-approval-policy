@@ -6,7 +6,7 @@
 > default so **the turn lands immediately instead of hanging forever**. Interactive sessions are
 > unchanged by default.
 
-**Requires dsh >= 0.1.7-rc.1** (declared in `package.json` as a `peerDependencies` floor — from dsh 0.1.7 the official install precheck reads plugin peerDependencies for compatibility).
+**Requires dsh >= 0.2.0-rc.2** (declared in `package.json` as a `peerDependencies` floor — from dsh 0.1.7 the official install precheck reads plugin peerDependencies for compatibility).
 
 > [简体中文](README.md) · **English**
 
@@ -74,14 +74,16 @@ approval/request (host waterfall)
 | `cron` | turn-level | the last provenance user message's `source.kind === 'cron'` (dsh-cron ≥ the patched release) |
 
 `scheduled` / `cron` look at the last **provenance** user message (`user` / `schedule` /
-`cron`), **skipping synthetic injections**: the host writes `role='user'` context messages
+`cron` / `user-question-reply`), **skipping synthetic injections**: the host writes `role='user'` context messages
 (`runtime-context` snapshots, `skill-catalog` reminders) into the stream after a turn starts,
 always after the trigger — without the skip every cron turn misclassifies as interactive (a bug
 caught on a live host and pinned by a regression test). Not "any" and not "the first" either:
 those sessions are shared with humans, so **once a human has spoken the turn is not gated** —
 "is anyone watching" is exactly the semantics of unattended detection. A human steering a
 clarification after a cron fire makes that last provenance message a human one, and the
-interactive default is kept. A malformed glob in the `sessions` list is treated as a miss
+interactive default is kept; dsh 0.2.0's timed ask (experimental) late answer
+(`source.kind === 'user-question-reply'`) counts as human presence the same way, not as a
+synthetic injection. A malformed glob in the `sessions` list is treated as a miss
 (compile failures don't throw), so a typo in the list can never break approvals.
 
 ### Relationship to the host's own mechanisms

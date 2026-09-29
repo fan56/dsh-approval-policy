@@ -114,6 +114,24 @@ test('readFacts: synthetic context injections do not shadow the trigger', () => 
   assert.equal(readFacts({ id: 's1', session: mixed }).lastUserMessageKind, 'user')
 })
 
+// dsh 0.2.0 timed ask (experimental): a timed-out question can still be
+// answered late, and the late answer flows back as role='user' with
+// source.kind='user-question-reply' — hard proof a human was there. It must
+// count as human presence (same standing as an explicit 'user' steer), NOT
+// be skipped as a synthetic injection past the cron/schedule trigger that
+// fired earlier.
+test('user-question-reply (timed-ask late answer) is human presence, not a synthetic injection', () => {
+  // readFacts: the backward scan STOPS on it instead of skipping through to
+  // the cron trigger underneath
+  const timedTurn = fakeSession({
+    messages: [userMsg('cron'), userMsg('runtime-context'), userMsg('user-question-reply')],
+  })
+  assert.equal(readFacts({ id: 's1', session: timedTurn }).lastUserMessageKind, 'user-question-reply')
+
+  // shouldGate: even a cron-gating deployment keeps such a turn interactive
+  assert.equal(shouldGate({ ...DEFAULT, origins: ['cron'] }, 's1', { lastUserMessageKind: 'user-question-reply' }), false)
+})
+
 // --------------------------------------------------------------- shouldGate --
 
 test('default origins gate subagent sessions and scheduled turns, nothing else', () => {

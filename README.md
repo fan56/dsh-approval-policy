@@ -4,7 +4,7 @@
 > 先把请求交给下游交互面，**窗口内有人答就用人的答案**，窗口耗尽则按 fail-closed 默认裁决落定，
 > **turn 立即落地，不再无限挂起**。交互会话默认零改动。
 
-**要求 dsh >= 0.1.7-rc.1**（`package.json` 以 `peerDependencies` 声明该地板——dsh 0.1.7 起官方安装预检读取插件 peerDependencies 做兼容性检查）。
+**要求 dsh >= 0.2.0-rc.2**（`package.json` 以 `peerDependencies` 声明该地板——dsh 0.1.7 起官方安装预检读取插件 peerDependencies 做兼容性检查）。
 
 > **简体中文** · [English](README.en.md)
 
@@ -67,12 +67,14 @@ approval/request（宿主 waterfall）
 | `scheduled` | turn 级 | 会话**最后一条溯源 user 消息**的 `source.kind === 'schedule'`（宿主 dsh-schedule） |
 | `cron` | turn 级 | 最后一条溯源 user 消息 `source.kind === 'cron'`（dsh-cron ≥ 本次补丁版） |
 
-`scheduled` / `cron` 取的是**最后一条溯源** user 消息（`user` / `schedule` / `cron`），
-**跳过合成注入**：宿主在 turn 启动后会往 user 消息流里注 `runtime-context` 快照、
+`scheduled` / `cron` 取的是**最后一条溯源** user 消息（`user` / `schedule` / `cron` /
+`user-question-reply`），**跳过合成注入**：宿主在 turn 启动后会往 user 消息流里注 `runtime-context` 快照、
 `skill-catalog` 提醒这类 `role='user'` 的合成消息，它们永远压在触发消息后面——不跳过的话
 每条 cron turn 都会被误判成交互（真机测试抓到的坑，回归单测钉死）。也不取「任一条」或
 「首条」：这些会话和人是共用的，**人插过话就不门控**——「有没有人在看」正是无人值守判定的
-语义。cron 任务跑完后人 steer 了一句澄清，最后一条溯源就是人的 → 交互默认保留。
+语义。cron 任务跑完后人 steer 了一句澄清，最后一条溯源就是人的 → 交互默认保留；dsh 0.2.0
+的 timed ask（实验）超时后迟到回答（`source.kind === 'user-question-reply'`）同理算人在场，
+不算合成注入。
 `sessions` 名单里的非法 glob 按不命中处理（编译失败不抛），保证名单写错也不会打断审批。
 
 ### 与宿主既有机制的关系

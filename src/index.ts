@@ -30,7 +30,8 @@
  *     after the trigger and would otherwise shadow it. Turn-level because
  *     those sessions are shared with humans: only machine-driven turns
  *     gate, and a human steering afterwards (last provenance message =
- *     human) keeps the interactive default.
+ *     human — 'user', or a timed-ask late reply 'user-question-reply')
+ *     keeps the interactive default.
  *
  * The listener registers with prepend: true — the gate sits ahead of the
  * interactive answerers (web remote answerer, dsh-feishu card) regardless of
@@ -128,8 +129,15 @@ interface AgentLike {
  * human input and counts as 'user'). Live-tested: without this skip, every
  * cron/scheduled turn misclassified as interactive and slipped through
  * unwindowed.
+ *
+ * 'user-question-reply' (dsh 0.2.0 timed ask, experimental) is the LATE
+ * answer to a timed-out question flowing back as a user-role message — hard
+ * proof a human was there. It stops the scan with the same standing as an
+ * explicit 'user' steer (the turn stays interactive); skipping it as
+ * synthetic would shadow it with the cron/schedule trigger that fired
+ * BEFORE the human answered.
  */
-const PROVENANCE_KINDS: ReadonlySet<string> = new Set(['user', 'schedule', 'cron'])
+const PROVENANCE_KINDS: ReadonlySet<string> = new Set(['user', 'schedule', 'cron', 'user-question-reply'])
 
 /**
  * Read the origin facts off the request's agent. Both reads are best-effort:

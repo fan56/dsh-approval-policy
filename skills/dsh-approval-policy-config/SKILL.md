@@ -29,7 +29,8 @@ bundle 方式（`dsh plugin add @aiwayds/dsh-approval-policy` 或列在 profile 
 判定粒度：`sessions` 命中与 `all` 是会话级/全局；`subagent` 看 `session.header.origin ===
 'subagent'`（会话级）；`scheduled` / `cron` 看会话**最后一条溯源** user 消息的 `source.kind`
 （`schedule` / `cron`，turn 级；`runtime-context` / `skill-catalog` 等合成注入会被跳过，
-不污染判定）——人插过话就不门控（"有没有人在看"语义）。
+不污染判定）——人插过话就不门控（"有没有人在看"语义；dsh 0.2.0 timed ask 的迟到回答
+`user-question-reply` 同理算人在场）。
 `cron` 需要 dsh-cron 自带 `source.kind: 'cron'` 的补丁版。
 
 挂载块形状（`~/.dsh/cordis.patch.yml` 或某个 profile 的 cordis.patch.yml）：

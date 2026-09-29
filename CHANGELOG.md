@@ -1,5 +1,18 @@
 # @aiwayds/dsh-approval-policy
 
+## Unreleased（dsh 0.2.0-rc.2 迁移；随 wave 统一发版）
+
+raise dsh host floor to 0.2.0-rc.2（peer `@deepseek-ai/dsh` `>=0.1.7-rc.1` → `>=0.2.0-rc.2`；dev 闭包重链 0.2.0-rc.2 全局闭包，真机 smoke 于 0.2.0-rc.2 宿主装载/卸载全通过）。
+
+### Fixed
+
+- **`PROVENANCE_KINDS` 增补 `'user-question-reply'`**：0.2.0 引入 timed ask（实验特性，默认关）——
+  超时问题的迟到回答以 user 角色消息回流（`source.kind='user-question-reply'`），是「人在场」的铁证。
+  竞速门的后向溯源扫描现在把它认作溯源消息并停在其上（同 `'user'` steer 语义，turn 保持交互默认、
+  不进窗）；此前它会被当合成注入跳过，扫描错落到更早的 cron/schedule 触发上——人在场却被判
+  无人值守进窗。回归单测 +1（readFacts 停扫描 + shouldGate 即使 cron 门控部署也不门控该 turn），
+  共 18 例全绿。
+
 ## 0.1.1
 
 真机测试（2026-09-25，tui profile 实测）抓到的判定 bug 修复：
