@@ -2,6 +2,8 @@
 
 ## Unreleased（dsh 0.2.0-rc.2 迁移；随 wave 统一发版）
 
+0.2.1-rc.2 wave: CI closure tower restored to newest-of(latest,next) with a prerelease-aware compare (the 10-17 pin-to-latest hunk is undone); zero code changes — peer floor `>=0.2.0-rc.2` unchanged (pre-flight `includePrerelease` already matches 0.2.1-rc.2); typecheck clean, 18/0 tests, boot smoke pass against a 0.2.1-rc.2 host closure.
+
 raise dsh host floor to 0.2.0-rc.2（peer `@deepseek-ai/dsh` `>=0.1.7-rc.1` → `>=0.2.0-rc.2`；dev 闭包重链 0.2.0-rc.2 全局闭包，真机 smoke 于 0.2.0-rc.2 宿主装载/卸载全通过）。
 
 ### Fixed
