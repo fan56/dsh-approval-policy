@@ -1,6 +1,10 @@
 # @aiwayds/dsh-approval-policy
 
-## Unreleased（dsh 0.2.0-rc.2 迁移；随 wave 统一发版）
+## Unreleased
+
+### Changed
+
+- **0.2.2-rc.1 wave**: zero code changes — the plugin declares no `@deepseek-ai/*` dev pins, CI's host closure install already resolves newest-of(latest,next) with a prerelease-aware compare (it adopts 0.2.2-rc.1 on its next run), and the peer floor `>=0.2.0-rc.2` is unchanged (pre-flight `includePrerelease` already matches 0.2.2-rc.1). Verified against a real 0.2.2-rc.1 host closure (scratch `dsh@0.2.2-rc.1` install, cordis 4.1.0 / schemastery 3.19.0): typecheck clean, 18/0 tests, boot smoke pass. Also regenerated `package-lock.json` against registry.npmjs.org — the committed lock still captured the pre-0.2.1 hard-peer tower; with every peer optional the fresh install collapses it to the real dependency graph.
 
 ## 0.2.1 (2026-10-26)
 
