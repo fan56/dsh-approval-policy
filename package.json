@@ -42,6 +42,9 @@
     "smoke": "node scripts/smoke-boot.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-user-approval": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "3.19.0",
     "@types/node": "^24.0.0",
     "typescript": "~5.9.0"
   },
