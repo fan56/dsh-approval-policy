@@ -1,6 +1,6 @@
 # @aiwayds/dsh-approval-policy
 
-## Unreleased
+## 0.3.0 (2026-11-06)
 
 ### Changed
 

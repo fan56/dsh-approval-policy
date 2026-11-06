@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/dsh-approval-policy",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "dsh plugin: unattended approval gate — subagent/scheduled/cron approval requests get a bounded answer window, then settle with a fail-closed default instead of hanging forever (per origin or per session)",
   "keywords": [
     "dsh",
