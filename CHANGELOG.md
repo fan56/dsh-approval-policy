@@ -1,5 +1,11 @@
 # @aiwayds/dsh-approval-policy
 
+## Unreleased
+
+### Changed
+
+- **0.2.2-rc.2 wave**: ride the host closure — the type-only dev pin `@deepseek-ai/dsh-user-approval` moves `0.2.2-rc.1` → `0.2.2-rc.2` (lockfile re-resolved from the official registry; the old lock's auto-installed peer tower is dropped via the new `.npmrc` `legacy-peer-deps=true`, same as dsh-feishu / dsh-cron). CI/release host-closure installs already resolve newest-of(latest,next) live with a prerelease-aware compare — no workflow change. Peer floor `>=0.2.0-rc.2` unchanged (pre-flight `includePrerelease` already matches 0.2.2-rc.2). Verified against a real 0.2.2-rc.2 host closure (scratch `dsh@0.2.2-rc.2` install, DSH_CLOSURE_DIR relink): typecheck clean, 18/0 tests, boot smoke pass (mount + config-layer merge + clean boot + removal reconciles the stock tree).
+
 ## 0.3.0 (2026-11-06)
 
 ### Changed
