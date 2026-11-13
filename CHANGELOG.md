@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **npm packaged upgrade regression test.** `test/packaged-upgrade.test.mjs` installs the published 0.3.0 baseline in a scratch consumer, packs the repo, then upgrades that consumer to the tarball and asserts the package carries no `preinstall`/`install`/`postinstall` hook, still ships its bundle patch and entry, and leaves the consumer tree untouched — the pnpm 11 `strictDepBuilds` / `ERR_PNPM_IGNORED_BUILDS` class (see dsh-subagent-registry#10). No product change.
+
 ### Changed
 
 - **0.2.2-rc.2 wave**: ride the host closure — the type-only dev pin `@deepseek-ai/dsh-user-approval` moves `0.2.2-rc.1` → `0.2.2-rc.2` (lockfile re-resolved from the official registry; the old lock's auto-installed peer tower is dropped via the new `.npmrc` `legacy-peer-deps=true`, same as dsh-feishu / dsh-cron). CI/release host-closure installs already resolve newest-of(latest,next) live with a prerelease-aware compare — no workflow change. Peer floor `>=0.2.0-rc.2` unchanged (pre-flight `includePrerelease` already matches 0.2.2-rc.2). Verified against a real 0.2.2-rc.2 host closure (scratch `dsh@0.2.2-rc.2` install, DSH_CLOSURE_DIR relink): typecheck clean, 18/0 tests, boot smoke pass (mount + config-layer merge + clean boot + removal reconciles the stock tree).
