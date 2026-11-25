@@ -250,3 +250,148 @@ test('listener: a sessions-list hit gates even a human-driven turn', async () =>
   const request = { agent: { id: 'night-runner', session: fakeSession({ messages: [userMsg('user')] }) } }
   assert.equal(await listener(request, async () => 'allowed-once'), 'rejected')
 })
+
+// ------------------------------------------------ expiry-aware gate (T1-T7) --
+
+// The gate owns the clock and the signal. A downstream answerer may register
+// an abort listener that settles its ask; when the window expires that
+// listener runs synchronously, but the gate default must still win — both the
+// answer and the rejection of decision() are mapped through `expired`.
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+test('T1: abort listener resolves cancelled synchronously — gate default still wins', async () => {
+  const controller = new AbortController()
+  let abortSettled = false
+  const decision = () => new Promise((resolve) => {
+    controller.signal.addEventListener('abort', () => {
+      abortSettled = true
+      resolve('cancelled')
+    })
+  })
+  const outcome = await raceGate(decision, 20, 'rejected', () => controller.abort())
+  assert.equal(outcome, 'rejected')
+  assert.equal(abortSettled, true)
+  assert.equal(controller.signal.aborted, true)
+})
+
+test('T2: a resolve scheduled after abort cannot replace the gate default', async () => {
+  const controller = new AbortController()
+  const decision = () => new Promise((resolve) => {
+    controller.signal.addEventListener('abort', () => setTimeout(() => resolve('cancelled'), 5))
+  })
+  const outcome = await raceGate(decision, 20, 'rejected', () => controller.abort())
+  assert.equal(outcome, 'rejected')
+})
+
+test('T3: a downstream that never resolves is settled by the gate window', async () => {
+  const outcome = await raceGate(() => new Promise(() => {}), 20, 'rejected')
+  assert.equal(outcome, 'rejected')
+})
+
+test('T4: a downstream rejection at abort is mapped to the gate default', async () => {
+  const controller = new AbortController()
+  const { promise, reject } = deferred()
+  const decision = () => {
+    controller.signal.addEventListener('abort', () => reject(new Error('ask cancelled')))
+    return promise
+  }
+  const outcome = await raceGate(decision, 20, 'rejected', () => controller.abort())
+  assert.equal(outcome, 'rejected')
+})
+
+test('T5: an in-window answer wins and the gate signal is never aborted', async () => {
+  const controller = new AbortController()
+  let abortFired = false
+  controller.signal.addEventListener('abort', () => { abortFired = true })
+  const outcome = await raceGate(async () => 'allowed-once', 60_000, 'rejected', () => controller.abort())
+  assert.equal(outcome, 'allowed-once')
+  assert.equal(abortFired, false)
+  assert.equal(controller.signal.aborted, false)
+})
+
+test('T6: windowMs<=0 calls neither decision nor onExpire', async () => {
+  let called = 0
+  let expired = false
+  const outcome = await raceGate(
+    async () => { called += 1; return 'allowed-once' },
+    0,
+    'unavailable',
+    () => { expired = true },
+  )
+  assert.equal(outcome, 'unavailable')
+  assert.equal(called, 0)
+  assert.equal(expired, false)
+})
+
+test('T7: gated listener attaches the field before next(); non-gated attaches nothing', async () => {
+  // gated + window>0: same request object carries the descriptor at next() entry
+  const gatedCtx = fakeCtx()
+  apply(gatedCtx, refs({ windowSeconds: 60 }))
+  const request = { agent: { id: 'child-1', session: fakeSession({ origin: 'subagent' }) } }
+  let seenField
+  const outcome = await gatedCtx.listeners[0].listener(request, async () => {
+    seenField = request.approvalGateExpiry
+    return 'allowed-once'
+  })
+  assert.equal(outcome, 'allowed-once')
+  assert.ok(seenField, 'field is present when the downstream listener starts')
+  assert.equal(seenField.windowMs, 60_000)
+  assert.equal(seenField.defaultOutcome, 'rejected')
+  assert.ok(seenField.signal instanceof AbortSignal)
+  assert.equal(seenField.signal.aborted, false)
+  assert.equal(request.approvalGateExpiry, seenField, 'the field lives on the same request reference')
+
+  // windowMs<=0: no delegation and no field
+  const zeroCtx = fakeCtx()
+  apply(zeroCtx, refs({ windowSeconds: 0 }))
+  const zeroRequest = { agent: { id: 'child-2', session: fakeSession({ origin: 'subagent' }) } }
+  assert.equal(await zeroCtx.listeners[0].listener(zeroRequest, async () => 'allowed-once'), 'rejected')
+  assert.equal(zeroRequest.approvalGateExpiry, undefined)
+
+  // frozen request: attachment fails silently, verdict unchanged
+  const frozenCtx = fakeCtx()
+  apply(frozenCtx, refs({ windowSeconds: 60 }))
+  const frozen = Object.freeze({ agent: { id: 'child-3', session: fakeSession({ origin: 'subagent' }) } })
+  assert.equal(await frozenCtx.listeners[0].listener(frozen, async () => 'allowed-once'), 'allowed-once')
+
+  // non-gated: no field attached
+  const interactiveCtx = fakeCtx()
+  apply(interactiveCtx, refs())
+  const humanRequest = { agent: { id: 'human-1', session: fakeSession({ messages: [userMsg('user')] }) } }
+  let humanField
+  await interactiveCtx.listeners[0].listener(humanRequest, async () => {
+    humanField = humanRequest.approvalGateExpiry
+    return 'allowed-once'
+  })
+  assert.equal(humanField, undefined)
+})
+
+test('listener: window expiry aborts the gate signal and settles with the default', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, refs({ windowSeconds: 0.02, defaultOutcome: 'unavailable' }))
+  const { listener } = ctx.listeners[0]
+  const request = { agent: { id: 'child-expire', session: fakeSession({ origin: 'subagent' }) } }
+  let descriptor
+  let signal
+  const verdict = await listener(request, async () => {
+    descriptor = request.approvalGateExpiry
+    signal = descriptor.signal
+    // listen for expiry but do NOT settle the downstream answer ourselves
+    signal.addEventListener('abort', () => {})
+    return new Promise(() => {})
+  })
+  assert.equal(verdict, 'unavailable')
+  assert.equal(signal.aborted, true)
+  assert.equal(descriptor.defaultOutcome, 'unavailable')
+})
+
+test('regression: a plain (non-Promise) decision value still wins; a synchronous throw still rejects', async () => {
+  assert.equal(await raceGate(() => 'allowed-once', 60_000, 'rejected'), 'allowed-once')
+  await assert.rejects(raceGate(() => { throw new Error('sync throw') }, 60_000, 'rejected'), /sync throw/)
+})

@@ -1,5 +1,14 @@
 # @aiwayds/dsh-approval-policy
 
+## 0.3.1 (2026-11-25)
+
+### Fixed
+
+- **审批窗口到期时通知并取消下游 ask**：门控在 `approval/request` waterfall 上给同一 request 对象挂可选 `approvalGateExpiry` 描述符（`windowMs` / `defaultOutcome` / 门控自有的 `AbortSignal`），供进程内 bridge 监听到期、结算并取消挂起的 ask，无需自建定时器或触碰宿主信号。`raceGate` 新增可选第 4 参 `onExpire`，到期严格按「标记过期 → 用 `defaultOutcome` 落定 race → 再 abort」的顺序回调；迟到回答（含 abort 监听器解析出的 `cancelled`）与下游 rejection 在过期后统一降级为门控默认裁决，不会被迟到结果覆盖。
+- **保持 `defaultOutcome` 语义**：窗口耗尽仍按配置的 fail-closed 裁决落定；窗口内回答与交互透传路径不变，`windowMs <= 0` 立即拒绝且不问下游的行为保持原样。
+- **兼容旧 bridge**：描述符为可选附加字段，请求不可扩展/冻结时静默降级为扩展前行为；不读取该字段的旧 bridge 仍走原路径。既有导出签名与默认行为不变，属纯 patch 升级。
+- 回归：`test/gate.test.mjs` 新增 T1–T7 竞速/回调顺序用例及到期 abort、普通值/同步抛错回归；本地 27/27 通过，T8 差分验证通过。
+
 ## Unreleased
 
 ### Added

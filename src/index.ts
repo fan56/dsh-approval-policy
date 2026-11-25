@@ -65,6 +65,23 @@ export type UnattendedOrigin = 'subagent' | 'scheduled' | 'cron' | 'all'
  */
 export type GatedOutcome = 'rejected' | 'unavailable'
 
+/**
+ * Optional descriptor attached to a gated `approval/request` so an in-process
+ * downstream answerer can settle its pending ask when the gate's window
+ * expires — without building a timer of its own or touching the host signal.
+ *
+ * The signal belongs to a fresh AbortController owned by the gate; the gate is
+ * the only expiry clock and aborts it after the default has settled the race.
+ * This is NOT a host protocol field: only listeners on the same waterfall
+ * chain share the request object, and a bridge that rebuilds its request
+ * params will not see it.
+ */
+export interface approvalGateExpiry {
+  windowMs: number
+  defaultOutcome: 'rejected' | 'unavailable'
+  signal: AbortSignal
+}
+
 /** Settings-page schema; each key arrives as a volatile live reference. */
 export const Config = z.object({
   /** Session/turn origins treated as unattended. Default: subagent + scheduled. */
@@ -194,13 +211,25 @@ export function shouldGate(
  * host's approval/policy=never). A fast `decision` (including an instant
  * fail-closed 'unavailable' from an empty chain) passes through untouched;
  * only a pending decision races the timer.
+ *
+ * `onExpire`, when supplied, is called at expiry after the default has won the
+ * race — the listener uses it to abort the gate-owned signal. The gate is the
+ * sole expiry clock; abort listeners registered on that signal run
+ * synchronously inside `onExpire`, after `expired` is set and the default is
+ * resolved, so they can never replace the gate's outcome.
  */
 export async function raceGate(
   decision: () => Promise<ApprovalOutcome>,
   windowMs: number,
   defaultOutcome: GatedOutcome,
+  onExpire?: () => void,
 ): Promise<ApprovalOutcome> {
   if (windowMs <= 0) return defaultOutcome
+  let expired = false
+  let resolveWindow!: (value: ApprovalOutcome) => void
+  const windowPromise = new Promise<ApprovalOutcome>((resolve) => {
+    resolveWindow = resolve
+  })
   // The window timer stays REF'd on purpose: an open window means the host
   // turn is still owed an outcome, so the process must not drain the event
   // loop before it settles. It is cleared as soon as the race settles
@@ -208,12 +237,26 @@ export async function raceGate(
   // timer holding the loop for the rest of the window.
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    return await Promise.race([
-      decision(),
-      new Promise<ApprovalOutcome>((resolve) => {
-        timer = setTimeout(() => resolve(defaultOutcome), windowMs)
-      }),
-    ])
+    // Map BOTH settlements of the downstream answerer. Once the gate has
+    // expired, a late answer (including the 'cancelled' resolved by an abort
+    // listener) or a rejection degrades to the gate default. Before expiry
+    // nothing changes: a fast answer passes through, a rejection rejects.
+    const mapped = Promise.resolve(decision()).then(
+      (outcome) => expired ? defaultOutcome : outcome,
+      (error: unknown) => {
+        if (expired) return defaultOutcome
+        throw error
+      },
+    )
+    timer = setTimeout(() => {
+      // Strict synchronous order: mark expiry, settle the gate, only then
+      // abort. Downstream abort listeners run inside onExpire, after the
+      // default has already been resolved into the race.
+      expired = true
+      resolveWindow(defaultOutcome)
+      onExpire?.()
+    }, windowMs)
+    return await Promise.race([mapped, windowPromise])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }
@@ -234,7 +277,25 @@ export function apply(ctx: Context, config: GateRuntimeConfig): void {
     const cfg = cfgNow()
     const sessionId = String(request.agent?.id ?? '')
     if (!shouldGate(cfg, sessionId, readFacts(request.agent))) return next()
-    return raceGate(next, cfg.windowSeconds * 1000, cfg.defaultOutcome)
+    const windowMs = cfg.windowSeconds * 1000
+    if (windowMs <= 0) return raceGate(next, windowMs, cfg.defaultOutcome)
+    // A gate-owned signal (never the host request's signal). Attach the
+    // descriptor to the SAME request object before calling next() so an
+    // in-process bridge on this waterfall can listen for expiry without its
+    // own timer. A non-extensible/frozen request simply fails to attach and
+    // degrades to the pre-extension behavior — the verdict is unaffected.
+    const controller = new AbortController()
+    const withExpiry = request as ApprovalRequestEvent & { approvalGateExpiry?: approvalGateExpiry }
+    try {
+      withExpiry.approvalGateExpiry = {
+        windowMs,
+        defaultOutcome: cfg.defaultOutcome,
+        signal: controller.signal,
+      }
+    } catch {
+      // swallow — degraded attachment, same decision as before
+    }
+    return raceGate(next, windowMs, cfg.defaultOutcome, () => controller.abort())
   }
 
   // prepend keeps the gate ahead of interactive answerers regardless of
