@@ -1,2 +1,5 @@
 node_modules/
 lib/
+
+# local verification/proof artifacts — never commit, never upload
+.proof/
